@@ -543,7 +543,7 @@
             </div>
 
             <!-- Hidden Universal File & Folder Inputs -->
-            <input type="file" id="filePicker" multiple accept="image/png,image/jpeg,image/webp" style="display:none">
+            <input type="file" id="filePicker" multiple accept="image/*,.png,.jpg,.jpeg,.webp,.jfif,.avif" style="display:none">
             <input type="file" id="folderPicker" webkitdirectory directory multiple style="display:none">
 
             <!-- Settings & Configuration Bar -->
@@ -730,9 +730,16 @@
             filePicker.click();
         });
 
+        // Universal image file validator
+        function isImageFile(file) {
+            if (!file) return false;
+            if (file.type && file.type.startsWith('image/')) return true;
+            return /\.(jpe?g|png|webp|jfif|avif|bmp|svg)$/i.test(file.name);
+        }
+
         filePicker.addEventListener('change', (e) => {
             if (e.target.files && e.target.files.length > 0) {
-                const files = Array.from(e.target.files).filter(f => f.name.match(/\.(png|jpe?g|webp)$/i));
+                const files = Array.from(e.target.files).filter(isImageFile);
                 if (files.length > 0) {
                     dirHandle = null;
                     const dropped = files.map(file => ({ handle: null, file }));
@@ -746,7 +753,7 @@
 
         folderPicker.addEventListener('change', (e) => {
             if (e.target.files && e.target.files.length > 0) {
-                const files = Array.from(e.target.files).filter(f => f.name.match(/\.(png|jpe?g|webp)$/i));
+                const files = Array.from(e.target.files).filter(isImageFile);
                 if (files.length > 0) {
                     dirHandle = null;
                     const dropped = files.map(file => ({ handle: null, file }));
@@ -783,9 +790,10 @@
         // Recursive directory traversal for webkitGetAsEntry (Safari, Firefox, Chrome)
         async function traverseFileSystemEntry(entry) {
             return new Promise((resolve) => {
+                if (!entry) return resolve([]);
                 if (entry.isFile) {
                     entry.file((file) => {
-                        if (file.name.match(/\.(png|jpe?g|webp)$/i)) {
+                        if (isImageFile(file)) {
                             resolve([{ handle: null, file }]);
                         } else {
                             resolve([]);
@@ -817,60 +825,73 @@
             e.stopPropagation();
             dropZone.classList.remove('dragover');
 
-            if (!e.dataTransfer.items && !e.dataTransfer.files) return;
+            if (!e.dataTransfer) return;
 
             statusDiv.innerHTML = '<span class="loading-spin">🌀</span> Scanning dropped items...';
-            let droppedItems = [];
 
             try {
-                // Try Chromium getAsFileSystemHandle first
-                let folderHandle = null;
-                const items = e.dataTransfer.items;
-                
-                if (items && items.length > 0) {
-                    // Check if first item is a directory handle in Chromium
-                    if (typeof items[0].getAsFileSystemHandle === 'function') {
-                        const firstHandle = await items[0].getAsFileSystemHandle();
-                        if (firstHandle && firstHandle.kind === 'directory') {
-                            folderHandle = firstHandle;
+                // 1. CRITICAL: Synchronously copy files and items BEFORE any await!
+                // Chromium/Safari wipes e.dataTransfer as soon as execution yields to the event loop.
+                const rawFiles = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+                const rawItems = e.dataTransfer.items ? Array.from(e.dataTransfer.items) : [];
+
+                // Synchronously extract webkit entries if available
+                const entries = [];
+                for (let i = 0; i < rawItems.length; i++) {
+                    const item = rawItems[i];
+                    if (item.kind === 'file' && typeof item.webkitGetAsEntry === 'function') {
+                        const entry = item.webkitGetAsEntry();
+                        if (entry) entries.push(entry);
+                    }
+                }
+
+                // Check if any dropped item is a directory
+                const hasDirectory = entries.some(entry => entry.isDirectory);
+
+                // Case A: User dropped a folder
+                if (hasDirectory) {
+                    // Try Chromium showDirectoryPicker / getAsFileSystemHandle if available
+                    if (rawItems.length > 0 && typeof rawItems[0].getAsFileSystemHandle === 'function') {
+                        try {
+                            const handle = await rawItems[0].getAsFileSystemHandle();
+                            if (handle && handle.kind === 'directory') {
+                                await processFolderHandle(handle);
+                                return;
+                            }
+                        } catch (err) {
+                            console.warn('Folder handle read failed, falling back to entry traversal:', err);
                         }
                     }
 
-                    if (folderHandle) {
-                        await processFolderHandle(folderHandle);
+                    // Universal directory traversal for Safari, Firefox, Chrome
+                    const nested = (await Promise.all(entries.map(traverseFileSystemEntry))).flat();
+                    if (nested.length > 0) {
+                        dirHandle = null;
+                        await processFiles(nested);
                         return;
                     }
+                }
 
-                    // Universal directory traversal using webkitGetAsEntry (Safari, Firefox, Chrome)
-                    for (let i = 0; i < items.length; i++) {
-                        const item = items[i];
-                        if (item.kind === 'file') {
-                            if (typeof item.webkitGetAsEntry === 'function') {
-                                const entry = item.webkitGetAsEntry();
-                                if (entry) {
-                                    const results = await traverseFileSystemEntry(entry);
-                                    droppedItems.push(...results);
-                                    continue;
-                                }
-                            }
-                            const file = item.getAsFile();
-                            if (file && file.name.match(/\.(png|jpe?g|webp)$/i)) {
-                                droppedItems.push({ handle: null, file });
-                            }
-                        }
-                    }
-                } else if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                    for (let i = 0; i < e.dataTransfer.files.length; i++) {
-                        const file = e.dataTransfer.files[i];
-                        if (file.name.match(/\.(png|jpe?g|webp)$/i)) {
-                            droppedItems.push({ handle: null, file });
+                // Case B: Loose file(s) dropped (Single or multiple images)
+                let droppedFiles = [];
+
+                if (rawFiles.length > 0) {
+                    for (const file of rawFiles) {
+                        if (isImageFile(file)) {
+                            droppedFiles.push({ handle: null, file });
                         }
                     }
                 }
 
-                if (droppedItems.length > 0) {
+                // Fallback: If rawFiles was somehow empty, read from entries
+                if (droppedFiles.length === 0 && entries.length > 0) {
+                    const resolved = (await Promise.all(entries.map(traverseFileSystemEntry))).flat();
+                    droppedFiles.push(...resolved);
+                }
+
+                if (droppedFiles.length > 0) {
                     dirHandle = null;
-                    await processFiles(droppedItems);
+                    await processFiles(droppedFiles);
                 } else {
                     statusDiv.innerHTML = '<span class="error-text">No valid JPG, PNG, or WebP images found.</span>';
                 }
@@ -891,19 +912,21 @@
             statusDiv.innerHTML = '<span class="loading-spin">🌀</span> Scanning folder: ' + handle.name + '...';
 
             for await (const entry of dirHandle.values()) {
-                if (entry.kind === 'file' && entry.name.match(/\.(png|jpe?g|webp)$/i)) {
+                if (entry.kind === 'file') {
                     const file = await entry.getFile();
-                    imageFiles.push({
-                        id: imageIdCounter++,
-                        handle: entry,
-                        file,
-                        quality: 85,
-                        isManual: false,
-                        debounceTimer: null,
-                        webpBlob: null,
-                        origUrl: URL.createObjectURL(file),
-                        webpUrl: null
-                    });
+                    if (isImageFile(file)) {
+                        imageFiles.push({
+                            id: imageIdCounter++,
+                            handle: entry,
+                            file,
+                            quality: 85,
+                            isManual: false,
+                            debounceTimer: null,
+                            webpBlob: null,
+                            origUrl: URL.createObjectURL(file),
+                            webpUrl: null
+                        });
+                    }
                 }
             }
 
