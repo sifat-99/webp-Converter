@@ -1367,22 +1367,41 @@
         // Global Spacebar state for Figma/Photoshop style Pan (Move)
         let isSpacePressed = false;
 
+        function isEditingText() {
+            const el = document.activeElement;
+            if (!el) return false;
+            const tag = el.tagName;
+            if (tag === 'TEXTAREA') return true;
+            if (tag === 'INPUT' && ['text', 'number', 'password', 'search', 'email'].includes(el.type)) return true;
+            return false;
+        }
+
         window.addEventListener('keydown', (e) => {
-            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
             if (e.code === 'Space' || e.key === ' ') {
-                isSpacePressed = true;
-                const hoveredViewer = document.querySelector('.compare-viewer:hover');
-                if (hoveredViewer) {
-                    e.preventDefault();
+                // If user is editing a text/number field, allow standard space
+                if (isEditingText()) return;
+
+                // Prevent window from scrolling down!
+                e.preventDefault();
+
+                // If focus was on a slider, button, or checkbox, blur it
+                if (document.activeElement && document.activeElement !== document.body) {
+                    document.activeElement.blur();
                 }
-                document.querySelectorAll('.compare-viewer').forEach(v => {
-                    v.classList.add('space-active');
-                });
+
+                if (!isSpacePressed) {
+                    isSpacePressed = true;
+                    document.querySelectorAll('.compare-viewer').forEach(v => {
+                        v.classList.add('space-active');
+                    });
+                }
             }
         });
 
         window.addEventListener('keyup', (e) => {
             if (e.code === 'Space' || e.key === ' ') {
+                if (isEditingText()) return;
+                e.preventDefault();
                 isSpacePressed = false;
                 document.querySelectorAll('.compare-viewer').forEach(v => {
                     v.classList.remove('space-active');
@@ -1410,13 +1429,14 @@
             let panX = 0;
             let panY = 0;
             let isPanning = false;
-            let startX, startY;
+            let startX = 0, startY = 0;
 
             function updateTransform() {
                 pzWebp.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
                 pzOrig.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
             }
 
+            // Wheel zoom
             viewer.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 const zoomFactor = 0.12;
@@ -1431,37 +1451,49 @@
                 updateTransform();
             }, { passive: false });
 
-            // Spacebar + Left Click OR Middle Click (1) OR drag when zoomed in (off slider)
-            viewer.addEventListener('mousedown', (e) => {
-                const canPan = isSpacePressed || e.button === 1 || (scale > 1 && e.target !== slider);
+            // Pointerdown: Spacebar + Click OR Middle-click (1) OR drag when zoomed in (off slider)
+            viewer.addEventListener('pointerdown', (e) => {
+                // If space is NOT pressed, scale is 1, and user clicked the slider, let slider operate normally
+                if (!isSpacePressed && e.target === slider && e.button === 0 && scale === 1) {
+                    return;
+                }
+
+                // Can pan if Spacebar is pressed, OR middle mouse button (1), OR zoomed in (and not dragging slider thumb directly)
+                const canPan = isSpacePressed || e.button === 1 || (scale > 1 && (isSpacePressed || e.target !== slider));
                 if (!canPan) return;
 
                 e.preventDefault();
                 isPanning = true;
                 viewer.classList.add('panning');
+                try {
+                    viewer.setPointerCapture(e.pointerId);
+                } catch (err) {}
+
                 startX = e.clientX - panX;
                 startY = e.clientY - panY;
             });
 
-            window.addEventListener('mousemove', (e) => {
+            viewer.addEventListener('pointermove', (e) => {
                 if (!isPanning) return;
-                // Check if left button (1) or middle button (4) is still pressed
-                if ((e.buttons & 1) === 0 && (e.buttons & 4) === 0) {
-                    isPanning = false;
-                    viewer.classList.remove('panning');
-                    return;
-                }
                 panX = e.clientX - startX;
                 panY = e.clientY - startY;
                 updateTransform();
             });
 
-            window.addEventListener('mouseup', () => {
+            const stopPanning = (e) => {
                 if (isPanning) {
                     isPanning = false;
                     viewer.classList.remove('panning');
+                    if (e && e.pointerId) {
+                        try {
+                            viewer.releasePointerCapture(e.pointerId);
+                        } catch (err) {}
+                    }
                 }
-            });
+            };
+
+            viewer.addEventListener('pointerup', stopPanning);
+            viewer.addEventListener('pointercancel', stopPanning);
 
             // Double click to reset zoom & pan back to normal
             viewer.addEventListener('dblclick', (e) => {
