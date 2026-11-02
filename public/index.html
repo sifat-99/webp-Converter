@@ -306,6 +306,23 @@
             height: 72vh;
         }
 
+        .compare-viewer.space-active {
+            cursor: grab !important;
+        }
+
+        .compare-viewer.space-active * {
+            cursor: grab !important;
+        }
+
+        .compare-viewer.space-active .compare-slider {
+            pointer-events: none !important;
+        }
+
+        .compare-viewer.panning,
+        .compare-viewer.panning * {
+            cursor: grabbing !important;
+        }
+
         .layer {
             position: absolute;
             top: 0;
@@ -1269,7 +1286,7 @@
                             <div class="badge badge-left">Original</div>
                             <div class="badge badge-right">WebP</div>
                             <button type="button" class="btn-expand" onclick="toggleExpand(${id})">⛶ Expand</button>
-                            <div class="help-text">Scroll/Pinch to Zoom | Drag to Pan</div>
+                            <div class="help-text">Scroll to Zoom | Space + Drag to Pan | Double-click to Reset</div>
                             
                             <div class="layer">
                                 <div class="pan-zoom-content" id="pz-webp-${id}">
@@ -1347,6 +1364,41 @@
             }
         }
 
+        // Global Spacebar state for Figma/Photoshop style Pan (Move)
+        let isSpacePressed = false;
+
+        window.addEventListener('keydown', (e) => {
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+            if (e.code === 'Space' || e.key === ' ') {
+                isSpacePressed = true;
+                const hoveredViewer = document.querySelector('.compare-viewer:hover');
+                if (hoveredViewer) {
+                    e.preventDefault();
+                }
+                document.querySelectorAll('.compare-viewer').forEach(v => {
+                    v.classList.add('space-active');
+                });
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'Space' || e.key === ' ') {
+                isSpacePressed = false;
+                document.querySelectorAll('.compare-viewer').forEach(v => {
+                    v.classList.remove('space-active');
+                    v.classList.remove('panning');
+                });
+            }
+        });
+
+        window.addEventListener('blur', () => {
+            isSpacePressed = false;
+            document.querySelectorAll('.compare-viewer').forEach(v => {
+                v.classList.remove('space-active');
+                v.classList.remove('panning');
+            });
+        });
+
         function initPanZoom(id) {
             const viewer = document.getElementById(`viewer-${id}`);
             const slider = document.getElementById(`compare-slider-${id}`);
@@ -1367,31 +1419,36 @@
 
             viewer.addEventListener('wheel', (e) => {
                 e.preventDefault();
-                const zoomFactor = 0.1;
+                const zoomFactor = 0.12;
                 const delta = e.deltaY > 0 ? -1 : 1;
-                const newScale = scale * (1 + delta * zoomFactor);
+                const newScale = Math.min(Math.max(1, scale * (1 + delta * zoomFactor)), 15);
                 
-                if (newScale >= 1 && newScale <= 10) {
-                    scale = newScale;
-                    if (scale === 1) {
-                        panX = 0;
-                        panY = 0;
-                    }
-                    updateTransform();
+                scale = newScale;
+                if (scale === 1) {
+                    panX = 0;
+                    panY = 0;
                 }
+                updateTransform();
             }, { passive: false });
 
+            // Spacebar + Left Click OR Middle Click (1) OR drag when zoomed in (off slider)
             viewer.addEventListener('mousedown', (e) => {
-                if (e.target === slider) return;
+                const canPan = isSpacePressed || e.button === 1 || (scale > 1 && e.target !== slider);
+                if (!canPan) return;
+
+                e.preventDefault();
                 isPanning = true;
+                viewer.classList.add('panning');
                 startX = e.clientX - panX;
                 startY = e.clientY - panY;
             });
 
             window.addEventListener('mousemove', (e) => {
-                if (!isPanning || scale === 1) return;
-                if (e.buttons !== 1) {
+                if (!isPanning) return;
+                // Check if left button (1) or middle button (4) is still pressed
+                if ((e.buttons & 1) === 0 && (e.buttons & 4) === 0) {
                     isPanning = false;
+                    viewer.classList.remove('panning');
                     return;
                 }
                 panX = e.clientX - startX;
@@ -1400,8 +1457,54 @@
             });
 
             window.addEventListener('mouseup', () => {
-                isPanning = false;
+                if (isPanning) {
+                    isPanning = false;
+                    viewer.classList.remove('panning');
+                }
             });
+
+            // Double click to reset zoom & pan back to normal
+            viewer.addEventListener('dblclick', (e) => {
+                if (e.target === slider) return;
+                scale = 1;
+                panX = 0;
+                panY = 0;
+                updateTransform();
+            });
+
+            // Mobile touch gestures (pinch-zoom and pan)
+            let initialTouchDist = null;
+            let initialScale = 1;
+            let touchStartX = 0, touchStartY = 0;
+
+            viewer.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1 && scale > 1) {
+                    touchStartX = e.touches[0].clientX - panX;
+                    touchStartY = e.touches[0].clientY - panY;
+                } else if (e.touches.length === 2) {
+                    initialTouchDist = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    initialScale = scale;
+                }
+            }, { passive: true });
+
+            viewer.addEventListener('touchmove', (e) => {
+                if (e.touches.length === 1 && scale > 1) {
+                    panX = e.touches[0].clientX - touchStartX;
+                    panY = e.touches[0].clientY - touchStartY;
+                    updateTransform();
+                } else if (e.touches.length === 2 && initialTouchDist) {
+                    const dist = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    scale = Math.min(Math.max(1, initialScale * (dist / initialTouchDist)), 15);
+                    if (scale === 1) { panX = 0; panY = 0; }
+                    updateTransform();
+                }
+            }, { passive: true });
         }
 
         // ----------------------------------------------------
