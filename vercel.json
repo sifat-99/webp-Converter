@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "cleanUrls": true,
+  "functions": {
+    "api/compress.js": {
+      "memory": 1024,
+      "maxDuration": 15
+    }
+  }
+}
+

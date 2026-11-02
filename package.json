@@ -1,0 +1,17 @@
+{
+  "name": "image-compressor-web-app",
+  "version": "1.0.0",
+  "description": "Image compressor web application",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "node -e \"console.log('Build ready for Vercel')\""
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "sharp": "^0.35.5"
+  },
+  "optionalDependencies": {
+    "@img/sharp-linux-x64": "^0.35.5"
+  }
+}

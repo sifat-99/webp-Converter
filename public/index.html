@@ -1,0 +1,1560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk WebP Compressor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="jszip.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1f1c2c 0%, #433a5c 50%, #928DAB 100%);
+            min-height: 100vh;
+            color: white;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 35px;
+            box-shadow: 0 10px 35px 0 rgba(0, 0, 0, 0.4);
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-weight: 700;
+            margin-bottom: 8px;
+            font-size: 2.2rem;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #ffffff 0%, #00f2fe 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle {
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.75);
+            margin-bottom: 25px;
+            font-size: 1rem;
+        }
+
+        .drop-zone {
+            width: 100%;
+            padding: 35px 20px;
+            border: 2px dashed rgba(255, 255, 255, 0.35);
+            border-radius: 16px;
+            background: rgba(0, 0, 0, 0.18);
+            color: white;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            margin-bottom: 20px;
+        }
+
+        .drop-zone.dragover {
+            border-color: #00f2fe;
+            background: rgba(0, 242, 254, 0.12);
+            transform: scale(1.01);
+        }
+
+        .drop-zone:hover {
+            background: rgba(0, 0, 0, 0.28);
+            border-color: rgba(255, 255, 255, 0.7);
+        }
+
+        .drop-zone-icon {
+            font-size: 2.5rem;
+            margin-bottom: 8px;
+        }
+
+        .drop-zone-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .settings-bar {
+            margin: 20px 0;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            background: rgba(0, 0, 0, 0.22);
+            padding: 18px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .setting-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.95rem;
+            color: white;
+            font-weight: 500;
+        }
+
+        .setting-select, .setting-input {
+            padding: 6px 10px;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.55);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            font-size: 0.95rem;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .setting-input {
+            width: 70px;
+            text-align: center;
+            cursor: text;
+        }
+
+        .setting-select:focus, .setting-input:focus {
+            border-color: #00f2fe;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.35);
+            color: #0c1a2e;
+            font-weight: 700;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 242, 254, 0.5);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.22);
+            border-color: rgba(255, 255, 255, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn-save-folder {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: #062b16;
+            box-shadow: 0 4px 15px rgba(56, 239, 125, 0.3);
+            font-weight: 700;
+        }
+
+        .btn-save-folder:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(56, 239, 125, 0.45);
+        }
+
+        .btn-danger {
+            background: rgba(255, 107, 107, 0.18);
+            border: 1px solid rgba(255, 107, 107, 0.4);
+            color: #ff8585;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: rgba(255, 107, 107, 0.3);
+        }
+
+        .btn-download-single {
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            background: rgba(0, 242, 254, 0.15);
+            border: 1px solid rgba(0, 242, 254, 0.35);
+            color: #00f2fe;
+            border-radius: 6px;
+        }
+
+        .btn-download-single:hover {
+            background: rgba(0, 242, 254, 0.3);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        #status {
+            margin-top: 15px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            min-height: 22px;
+            text-align: center;
+        }
+
+        .preview-list {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        .preview-card {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .savings {
+            font-size: 0.95rem;
+            color: #00f2fe;
+            font-weight: 600;
+        }
+
+        .card-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Compare Viewer */
+        .compare-viewer {
+            position: relative;
+            width: 100%;
+            height: 360px;
+            background: rgba(0, 0, 0, 0.55);
+            border-radius: 10px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: height 0.3s ease;
+            user-select: none;
+            touch-action: pan-y;
+        }
+
+        .compare-viewer.expanded {
+            height: 72vh;
+        }
+
+        .layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .layer-orig {
+            width: 50%;
+            z-index: 2;
+            border-right: 2px solid #00f2fe;
+        }
+
+        .pan-zoom-content {
+            width: 100%;
+            height: 100%;
+            transform-origin: 0 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pan-zoom-content img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            pointer-events: none;
+        }
+
+        .compare-slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            -webkit-appearance: none;
+            outline: none;
+            z-index: 3;
+            margin: 0;
+            cursor: ew-resize;
+        }
+
+        .compare-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 4px;
+            height: 4000px;
+            background: transparent;
+            cursor: ew-resize;
+        }
+
+        .badge {
+            position: absolute;
+            top: 10px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: rgba(0, 0, 0, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            z-index: 4;
+            pointer-events: none;
+        }
+        .badge-left { left: 10px; color: #ff9a9e; }
+        .badge-right { right: 10px; color: #00f2fe; }
+        
+        .btn-expand {
+            position: absolute;
+            bottom: 12px;
+            right: 12px;
+            background: rgba(0, 0, 0, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: white;
+            border-radius: 8px;
+            padding: 6px 12px;
+            z-index: 5;
+            cursor: pointer;
+            backdrop-filter: blur(5px);
+            font-size: 0.85rem;
+        }
+        .btn-expand:hover { background: rgba(0, 0, 0, 0.85); border-color: #00f2fe; }
+        .help-text { 
+            position: absolute; 
+            bottom: 12px; 
+            left: 12px; 
+            font-size: 0.75rem; 
+            color: rgba(255, 255, 255, 0.6); 
+            z-index: 4; 
+            pointer-events: none; 
+            background: rgba(0, 0, 0, 0.6); 
+            padding: 4px 8px; 
+            border-radius: 4px;
+        }
+
+        /* Card Controls */
+        .card-controls {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 25px;
+            align-items: center;
+        }
+
+        @media (max-width: 768px) {
+            .card-controls {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            .compare-viewer {
+                height: 260px;
+            }
+            h1 {
+                font-size: 1.8rem;
+            }
+        }
+
+        .stats-grid {
+            display: flex;
+            gap: 15px;
+        }
+
+        .stat-box {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px 14px;
+            border-radius: 8px;
+            flex: 1;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: rgba(255, 255, 255, 0.6);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        .stat-value {
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+
+        .stat-value.original {
+            color: #ff9a9e;
+        }
+
+        .stat-value.converted {
+            color: #00f2fe;
+        }
+
+        .quality-control {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        input[type="range"].quality-slider {
+            flex-grow: 1;
+            -webkit-appearance: none;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            outline: none;
+        }
+
+        input[type="range"].quality-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #00f2fe;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(0, 242, 254, 0.5);
+            transition: transform 0.2s;
+        }
+
+        input[type="range"].quality-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        .quality-val {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            min-width: 55px;
+            text-align: center;
+        }
+
+        .success-text {
+            color: #38ef7d;
+        }
+
+        .error-text {
+            color: #ff6b6b;
+        }
+
+        .loading-spin {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="glass-panel">
+            <h1>Bulk WebP Compressor</h1>
+            <p class="subtitle">Convert, compress, and compare JPG/PNG images to WebP right in your browser</p>
+
+            <!-- Drop Zone with Cross-Browser Trigger Buttons -->
+            <div id="dropZone" class="drop-zone">
+                <div class="drop-zone-icon">📁</div>
+                <div id="dropZoneText" style="font-size: 1.15rem; font-weight: 600;">Drag & Drop your Folder or Images here</div>
+                <div style="font-size: 0.85rem; opacity: 0.7; margin-top: 4px;">Supports JPG, JPEG, PNG, and WebP</div>
+                <div class="drop-zone-buttons">
+                    <button type="button" class="btn-secondary" id="selectFolderBtn">📂 Select Folder</button>
+                    <button type="button" class="btn-secondary" id="selectFilesBtn">🖼️ Select Images</button>
+                </div>
+            </div>
+
+            <!-- Hidden Universal File & Folder Inputs -->
+            <input type="file" id="filePicker" multiple accept="image/png,image/jpeg,image/webp" style="display:none">
+            <input type="file" id="folderPicker" webkitdirectory directory multiple style="display:none">
+
+            <!-- Settings & Configuration Bar -->
+            <div class="settings-bar">
+                <div class="setting-item" style="color: #00f2fe; font-weight: 600;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="autoTargetToggle" checked style="width: 18px; height: 18px; cursor: pointer;">
+                        Auto Target:
+                    </label>
+                    <input type="number" id="minKbInput" value="100" class="setting-input" min="1" max="5000">
+                    <span>-</span>
+                    <input type="number" id="maxKbInput" value="110" class="setting-input" min="1" max="5000">
+                    <span>KB</span>
+                </div>
+
+                <div class="setting-item">
+                    <span>Naming:</span>
+                    <select id="renameStrategy" class="setting-select">
+                        <option value="original">Original Name</option>
+                        <option value="sequential" selected>Sequential (1, 2, 3...)</option>
+                    </select>
+                </div>
+
+                <div class="setting-item">
+                    <span>Sort:</span>
+                    <select id="sortOrder" class="setting-select">
+                        <option value="name-asc" selected>Name (A-Z)</option>
+                        <option value="name-desc">Name (Z-A)</option>
+                        <option value="date-asc">Date (Oldest)</option>
+                        <option value="date-desc">Date (Newest)</option>
+                    </select>
+                </div>
+
+                <div class="setting-item">
+                    <span>Engine:</span>
+                    <select id="engineSelect" class="setting-select" title="Browser Engine runs 100% locally with unlimited size. Server Engine uses Sharp libvips.">
+                        <option value="browser" selected>⚡ In-Browser (Fast & Private)</option>
+                        <option value="server">🖥️ Server (Sharp)</option>
+                    </select>
+                </div>
+                
+                <label class="setting-item" style="cursor: pointer; color: #ff9a9e;" id="deleteOriginalLabel" title="Direct file deletion requires Chrome/Edge with Folder write permission">
+                    <input type="checkbox" id="deleteOriginalToggle" style="width: 18px; height: 18px; cursor: pointer;">
+                    Delete Original Images
+                </label>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="button-group" id="actionButtonGroup" style="display:none;">
+                <button type="button" class="btn-primary" id="downloadZipBtn">
+                    📦 Download All as ZIP (.zip)
+                </button>
+                <button type="button" class="btn-save-folder" id="saveFolderBtn" style="display:none;">
+                    💾 Save Directly to Folder
+                </button>
+                <button type="button" class="btn-danger" id="clearAllBtn">
+                    ✕ Clear All
+                </button>
+            </div>
+
+            <div id="status"></div>
+        </div>
+
+        <div class="preview-list" id="previewList"></div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const dropZone = document.getElementById('dropZone');
+        const dropZoneText = document.getElementById('dropZoneText');
+        const selectFolderBtn = document.getElementById('selectFolderBtn');
+        const selectFilesBtn = document.getElementById('selectFilesBtn');
+        const filePicker = document.getElementById('filePicker');
+        const folderPicker = document.getElementById('folderPicker');
+        const actionButtonGroup = document.getElementById('actionButtonGroup');
+        const downloadZipBtn = document.getElementById('downloadZipBtn');
+        const saveFolderBtn = document.getElementById('saveFolderBtn');
+        const clearAllBtn = document.getElementById('clearAllBtn');
+        const statusDiv = document.getElementById('status');
+        const previewList = document.getElementById('previewList');
+        const autoTargetToggle = document.getElementById('autoTargetToggle');
+        const minKbInput = document.getElementById('minKbInput');
+        const maxKbInput = document.getElementById('maxKbInput');
+        const renameStrategySelect = document.getElementById('renameStrategy');
+        const sortOrderSelect = document.getElementById('sortOrder');
+        const engineSelect = document.getElementById('engineSelect');
+        const deleteOriginalToggle = document.getElementById('deleteOriginalToggle');
+        const deleteOriginalLabel = document.getElementById('deleteOriginalLabel');
+
+        // State
+        let dirHandle = null;
+        let imageFiles = [];
+        let imageIdCounter = 0;
+        let isProcessingQueue = false;
+
+        // Check if File System Access API is supported (Chromium only)
+        const supportsFileSystemAccess = typeof window.showDirectoryPicker === 'function';
+        if (supportsFileSystemAccess) {
+            saveFolderBtn.style.display = 'inline-flex';
+        } else {
+            deleteOriginalLabel.title = "Delete original is only supported in Chrome/Edge desktop with direct folder access.";
+            deleteOriginalToggle.disabled = true;
+            deleteOriginalLabel.style.opacity = '0.5';
+        }
+
+        // ----------------------------------------------------
+        // Utilities
+        // ----------------------------------------------------
+        function formatBytes(bytes) {
+            if (!bytes || bytes === 0) return '0 KB';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function sortAndRender() {
+            const order = sortOrderSelect.value;
+            imageFiles.sort((a, b) => {
+                if (order === 'name-asc') {
+                    return a.file.name.localeCompare(b.file.name, undefined, { numeric: true, sensitivity: 'base' });
+                } else if (order === 'name-desc') {
+                    return b.file.name.localeCompare(a.file.name, undefined, { numeric: true, sensitivity: 'base' });
+                } else if (order === 'date-asc') {
+                    return a.file.lastModified - b.file.lastModified;
+                } else if (order === 'date-desc') {
+                    return b.file.lastModified - a.file.lastModified;
+                }
+                return 0;
+            });
+            renderCards();
+        }
+
+        sortOrderSelect.addEventListener('change', () => {
+            sortAndRender();
+        });
+
+        clearAllBtn.addEventListener('click', () => {
+            cleanupBlobs();
+            imageFiles = [];
+            dirHandle = null;
+            previewList.innerHTML = '';
+            actionButtonGroup.style.display = 'none';
+            statusDiv.innerHTML = '';
+            dropZoneText.innerHTML = 'Drag & Drop your Folder or Images here';
+        });
+
+        function cleanupBlobs() {
+            imageFiles.forEach(img => {
+                if (img.origUrl) URL.revokeObjectURL(img.origUrl);
+                if (img.webpUrl) URL.revokeObjectURL(img.webpUrl);
+            });
+        }
+
+        // ----------------------------------------------------
+        // File & Folder Picking (Universal Browser Support)
+        // ----------------------------------------------------
+        async function handleFolderSelection(e) {
+            if (e) e.stopPropagation();
+            if (supportsFileSystemAccess) {
+                try {
+                    const handle = await window.showDirectoryPicker();
+                    dropZoneText.innerHTML = `✅ Selected Folder: <b>${handle.name}</b>`;
+                    await processFolderHandle(handle);
+                    return;
+                } catch (err) {
+                    if (err.name === 'AbortError') return;
+                    console.warn('showDirectoryPicker failed, falling back to folder input:', err);
+                }
+            }
+            // Fallback for Firefox, Safari, or when showDirectoryPicker fails
+            folderPicker.click();
+        }
+
+        selectFolderBtn.addEventListener('click', handleFolderSelection);
+        selectFilesBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            filePicker.click();
+        });
+
+        // Clicking the dropZone background triggers file selection
+        dropZone.addEventListener('click', (e) => {
+            if (e.target.closest('button')) return;
+            filePicker.click();
+        });
+
+        filePicker.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                const files = Array.from(e.target.files).filter(f => f.name.match(/\.(png|jpe?g|webp)$/i));
+                if (files.length > 0) {
+                    dirHandle = null;
+                    const dropped = files.map(file => ({ handle: null, file }));
+                    processFiles(dropped);
+                } else {
+                    statusDiv.innerHTML = '<span class="error-text">No valid JPG, PNG, or WebP images selected.</span>';
+                }
+            }
+            filePicker.value = '';
+        });
+
+        folderPicker.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                const files = Array.from(e.target.files).filter(f => f.name.match(/\.(png|jpe?g|webp)$/i));
+                if (files.length > 0) {
+                    dirHandle = null;
+                    const dropped = files.map(file => ({ handle: null, file }));
+                    processFiles(dropped);
+                } else {
+                    statusDiv.innerHTML = '<span class="error-text">No valid JPG, PNG, or WebP images in selected folder.</span>';
+                }
+            }
+            folderPicker.value = '';
+        });
+
+        // ----------------------------------------------------
+        // Drag & Drop (Supports Folders & Files Across All Browsers)
+        // ----------------------------------------------------
+        ['dragenter', 'dragover'].forEach(name => {
+            dropZone.addEventListener(name, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.add('dragover');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(name => {
+            dropZone.addEventListener(name, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.remove('dragover');
+            });
+        });
+
+        window.addEventListener('dragover', (e) => e.preventDefault());
+        window.addEventListener('drop', (e) => e.preventDefault());
+
+        // Recursive directory traversal for webkitGetAsEntry (Safari, Firefox, Chrome)
+        async function traverseFileSystemEntry(entry) {
+            return new Promise((resolve) => {
+                if (entry.isFile) {
+                    entry.file((file) => {
+                        if (file.name.match(/\.(png|jpe?g|webp)$/i)) {
+                            resolve([{ handle: null, file }]);
+                        } else {
+                            resolve([]);
+                        }
+                    }, () => resolve([]));
+                } else if (entry.isDirectory) {
+                    const reader = entry.createReader();
+                    const allEntries = [];
+                    const readBatch = () => {
+                        reader.readEntries(async (entries) => {
+                            if (entries.length === 0) {
+                                const nested = (await Promise.all(allEntries.map(traverseFileSystemEntry))).flat();
+                                resolve(nested);
+                            } else {
+                                allEntries.push(...entries);
+                                readBatch();
+                            }
+                        }, () => resolve([]));
+                    };
+                    readBatch();
+                } else {
+                    resolve([]);
+                }
+            });
+        }
+
+        dropZone.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('dragover');
+
+            if (!e.dataTransfer.items && !e.dataTransfer.files) return;
+
+            statusDiv.innerHTML = '<span class="loading-spin">🌀</span> Scanning dropped items...';
+            let droppedItems = [];
+
+            try {
+                // Try Chromium getAsFileSystemHandle first
+                let folderHandle = null;
+                const items = e.dataTransfer.items;
+                
+                if (items && items.length > 0) {
+                    // Check if first item is a directory handle in Chromium
+                    if (typeof items[0].getAsFileSystemHandle === 'function') {
+                        const firstHandle = await items[0].getAsFileSystemHandle();
+                        if (firstHandle && firstHandle.kind === 'directory') {
+                            folderHandle = firstHandle;
+                        }
+                    }
+
+                    if (folderHandle) {
+                        await processFolderHandle(folderHandle);
+                        return;
+                    }
+
+                    // Universal directory traversal using webkitGetAsEntry (Safari, Firefox, Chrome)
+                    for (let i = 0; i < items.length; i++) {
+                        const item = items[i];
+                        if (item.kind === 'file') {
+                            if (typeof item.webkitGetAsEntry === 'function') {
+                                const entry = item.webkitGetAsEntry();
+                                if (entry) {
+                                    const results = await traverseFileSystemEntry(entry);
+                                    droppedItems.push(...results);
+                                    continue;
+                                }
+                            }
+                            const file = item.getAsFile();
+                            if (file && file.name.match(/\.(png|jpe?g|webp)$/i)) {
+                                droppedItems.push({ handle: null, file });
+                            }
+                        }
+                    }
+                } else if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    for (let i = 0; i < e.dataTransfer.files.length; i++) {
+                        const file = e.dataTransfer.files[i];
+                        if (file.name.match(/\.(png|jpe?g|webp)$/i)) {
+                            droppedItems.push({ handle: null, file });
+                        }
+                    }
+                }
+
+                if (droppedItems.length > 0) {
+                    dirHandle = null;
+                    await processFiles(droppedItems);
+                } else {
+                    statusDiv.innerHTML = '<span class="error-text">No valid JPG, PNG, or WebP images found.</span>';
+                }
+            } catch (err) {
+                console.error('Error handling dropped items:', err);
+                statusDiv.innerHTML = '<span class="error-text">Failed to read dropped files. Use the selection buttons above.</span>';
+            }
+        });
+
+        // ----------------------------------------------------
+        // Processing Input Files & Folders
+        // ----------------------------------------------------
+        async function processFolderHandle(handle) {
+            dirHandle = handle;
+            cleanupBlobs();
+            imageFiles = [];
+            dropZoneText.innerHTML = `✅ Selected Folder: <b>${handle.name}</b>`;
+            statusDiv.innerHTML = '<span class="loading-spin">🌀</span> Scanning folder: ' + handle.name + '...';
+
+            for await (const entry of dirHandle.values()) {
+                if (entry.kind === 'file' && entry.name.match(/\.(png|jpe?g|webp)$/i)) {
+                    const file = await entry.getFile();
+                    imageFiles.push({
+                        id: imageIdCounter++,
+                        handle: entry,
+                        file,
+                        quality: 85,
+                        isManual: false,
+                        debounceTimer: null,
+                        webpBlob: null,
+                        origUrl: URL.createObjectURL(file),
+                        webpUrl: null
+                    });
+                }
+            }
+
+            if (imageFiles.length === 0) {
+                statusDiv.innerHTML = '<span class="error-text">No JPG/PNG/WebP images found in folder: ' + handle.name + '</span>';
+                actionButtonGroup.style.display = 'none';
+                return;
+            }
+
+            statusDiv.innerHTML = `<span class="success-text">Found ${imageFiles.length} images. Processing previews...</span>`;
+            actionButtonGroup.style.display = 'flex';
+            if (supportsFileSystemAccess) {
+                saveFolderBtn.style.display = 'inline-flex';
+                saveFolderBtn.textContent = '💾 Save Directly to Folder';
+            }
+
+            sortAndRender();
+            queueAllPreviews();
+        }
+
+        async function processFiles(filesData) {
+            cleanupBlobs();
+            imageFiles = [];
+            dropZoneText.innerHTML = `✅ Selected <b>${filesData.length} Image(s)</b>`;
+            statusDiv.innerHTML = '<span class="loading-spin">🌀</span> Loading ' + filesData.length + ' image(s)...';
+
+            for (const data of filesData) {
+                imageFiles.push({
+                    id: imageIdCounter++,
+                    handle: data.handle,
+                    file: data.file,
+                    quality: 85,
+                    isManual: false,
+                    debounceTimer: null,
+                    webpBlob: null,
+                    origUrl: URL.createObjectURL(data.file),
+                    webpUrl: null
+                });
+            }
+
+            statusDiv.innerHTML = `<span class="success-text">Found ${imageFiles.length} image(s). Processing previews...</span>`;
+            actionButtonGroup.style.display = 'flex';
+            if (supportsFileSystemAccess && dirHandle) {
+                saveFolderBtn.style.display = 'inline-flex';
+            }
+
+            sortAndRender();
+            queueAllPreviews();
+        }
+
+        // ----------------------------------------------------
+        // Preview Queue (Smooth Concurrency, No Freezing)
+        // ----------------------------------------------------
+        async function queueAllPreviews() {
+            if (isProcessingQueue) return;
+            isProcessingQueue = true;
+            
+            const total = imageFiles.length;
+            let completed = 0;
+            const concurrency = 2; // Process 2 images concurrently for 60fps UI
+            let currentIndex = 0;
+
+            const updateProgress = () => {
+                statusDiv.innerHTML = `<span class="loading-spin">🌀</span> Generating WebP previews: ${completed} / ${total}...`;
+            };
+            updateProgress();
+
+            async function worker() {
+                while (currentIndex < imageFiles.length) {
+                    const img = imageFiles[currentIndex++];
+                    if (img) {
+                        await fetchPreview(img.id);
+                        completed++;
+                        updateProgress();
+                    }
+                }
+            }
+
+            const workers = [];
+            for (let i = 0; i < Math.min(concurrency, total); i++) {
+                workers.push(worker());
+            }
+
+            await Promise.all(workers);
+            isProcessingQueue = false;
+            statusDiv.innerHTML = `<span class="success-text">🎉 Ready! All ${total} WebP previews generated.</span>`;
+        }
+
+        // ----------------------------------------------------
+        // Dual Compression Engines
+        // 1. In-Browser Engine (Canvas WebP, Unlimited Size, 100% Private)
+        // 2. Server Engine (Sharp via /api/compress)
+        // ----------------------------------------------------
+        async function compressInBrowser(file, quality, isAuto, minKb, maxKb) {
+            // Load image using createImageBitmap or Image element
+            let bmp;
+            try {
+                bmp = await createImageBitmap(file);
+            } catch (e) {
+                bmp = await new Promise((resolve, reject) => {
+                    const img = new Image();
+                    const url = URL.createObjectURL(file);
+                    img.onload = () => {
+                        URL.revokeObjectURL(url);
+                        resolve(img);
+                    };
+                    img.onerror = () => {
+                        URL.revokeObjectURL(url);
+                        reject(new Error('Failed to load image in browser'));
+                    };
+                    img.src = url;
+                });
+            }
+
+            const width = bmp.width || bmp.naturalWidth;
+            const height = bmp.height || bmp.naturalHeight;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(bmp, 0, 0);
+
+            if (bmp.close) bmp.close();
+
+            const getBlobAtQuality = (q) => {
+                return new Promise((resolve) => {
+                    canvas.toBlob((blob) => {
+                        resolve(blob);
+                    }, 'image/webp', q / 100);
+                });
+            };
+
+            if (!isAuto) {
+                const blob = await getBlobAtQuality(quality);
+                if (!blob) throw new Error('WebP encoding failed in this browser');
+                return { blob, quality, size: blob.size };
+            }
+
+            // Auto Target Mode: Binary Search
+            const minBytes = minKb * 1024;
+            const maxBytes = maxKb * 1024;
+
+            // Check if 100% is already under max
+            const q100Blob = await getBlobAtQuality(100);
+            if (q100Blob && q100Blob.size <= maxBytes) {
+                return { blob: q100Blob, quality: 100, size: q100Blob.size };
+            }
+
+            let low = 1;
+            let high = 100;
+            let bestBlob = null;
+            let bestQuality = 1;
+
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                const testBlob = await getBlobAtQuality(mid);
+                if (!testBlob) break;
+
+                if (testBlob.size >= minBytes && testBlob.size <= maxBytes) {
+                    return { blob: testBlob, quality: mid, size: testBlob.size };
+                }
+
+                if (testBlob.size > maxBytes) {
+                    high = mid - 1;
+                } else {
+                    low = mid + 1;
+                    bestBlob = testBlob;
+                    bestQuality = mid;
+                }
+            }
+
+            if (bestBlob) {
+                return { blob: bestBlob, quality: bestQuality, size: bestBlob.size };
+            }
+
+            const q1Blob = await getBlobAtQuality(1);
+            return { blob: q1Blob || q100Blob, quality: 1, size: (q1Blob || q100Blob).size };
+        }
+
+        async function compressOnServer(file, quality, isAuto, minKb, maxKb) {
+            // Vercel Serverless Function payload limit is 4.5MB
+            if (file.size > 4.2 * 1024 * 1024) {
+                console.warn(`File "${file.name}" is > 4.2MB. Using In-Browser engine to bypass Vercel serverless payload limits.`);
+                return compressInBrowser(file, quality, isAuto, minKb, maxKb);
+            }
+
+            const targetQuality = isAuto ? 'auto' : quality;
+            let url = `/api/compress?quality=${targetQuality}`;
+            if (isAuto) {
+                url += `&minKb=${minKb}&maxKb=${maxKb}`;
+            }
+
+            const buffer = await file.arrayBuffer();
+            const res = await fetch(url, {
+                method: 'POST',
+                body: buffer,
+                headers: { 'Content-Type': 'application/octet-stream' }
+            });
+
+            if (!res.ok) {
+                throw new Error(`Server returned status ${res.status}`);
+            }
+
+            const newSize = parseInt(res.headers.get('X-File-Size'), 10);
+            const finalQuality = parseInt(res.headers.get('X-Final-Quality'), 10) || quality;
+            const blob = await res.blob();
+
+            return { blob, quality: finalQuality, size: newSize || blob.size };
+        }
+
+        async function fetchPreview(id) {
+            const img = imageFiles.find(i => i.id === id);
+            if (!img) return;
+
+            const previewImgEl = document.getElementById(`preview-img-${id}`);
+            const convertedSizeEl = document.getElementById(`converted-size-${id}`);
+            const savingsEl = document.getElementById(`savings-${id}`);
+            const downloadBtn = document.getElementById(`download-btn-${id}`);
+
+            if (convertedSizeEl) convertedSizeEl.textContent = 'Processing...';
+
+            const isGlobalAuto = autoTargetToggle.checked;
+            const isAuto = isGlobalAuto && !img.isManual;
+            const minKb = parseInt(minKbInput.value, 10) || 100;
+            const maxKb = parseInt(maxKbInput.value, 10) || 110;
+            const engine = engineSelect.value;
+
+            try {
+                let result;
+                if (engine === 'server') {
+                    try {
+                        result = await compressOnServer(img.file, img.quality, isAuto, minKb, maxKb);
+                    } catch (serverErr) {
+                        console.warn('Server compression failed, falling back to In-Browser engine:', serverErr);
+                        result = await compressInBrowser(img.file, img.quality, isAuto, minKb, maxKb);
+                    }
+                } else {
+                    result = await compressInBrowser(img.file, img.quality, isAuto, minKb, maxKb);
+                }
+
+                if (isAuto && result.quality) {
+                    img.quality = result.quality;
+                    const slider = document.getElementById(`quality-${id}`);
+                    const valBadge = document.getElementById(`qualityVal-${id}`);
+                    const autoBadge = document.getElementById(`auto-badge-${id}`);
+                    if (slider) slider.value = img.quality;
+                    if (valBadge) valBadge.textContent = img.quality + '%';
+                    if (autoBadge) autoBadge.style.display = 'inline';
+                }
+
+                // Revoke old blob url
+                if (img.webpUrl) URL.revokeObjectURL(img.webpUrl);
+                img.webpBlob = result.blob;
+                img.webpUrl = URL.createObjectURL(result.blob);
+
+                if (previewImgEl) previewImgEl.src = img.webpUrl;
+                if (convertedSizeEl) convertedSizeEl.textContent = formatBytes(result.size);
+
+                const savingsPercent = Math.round((1 - (result.size / img.file.size)) * 100);
+                if (savingsEl) {
+                    savingsEl.textContent = savingsPercent > 0 ? `Saved ${savingsPercent}% space!` : 'No space saved';
+                }
+
+                if (downloadBtn) {
+                    downloadBtn.disabled = false;
+                }
+            } catch (err) {
+                console.error(`Failed to compress image ${img.file.name}:`, err);
+                if (convertedSizeEl) convertedSizeEl.textContent = 'Error';
+            }
+        }
+
+        // ----------------------------------------------------
+        // Quality Controls & Settings Events
+        // ----------------------------------------------------
+        autoTargetToggle.addEventListener('change', () => {
+            const isAuto = autoTargetToggle.checked;
+            imageFiles.forEach(img => {
+                if (isAuto) img.isManual = false;
+            });
+            queueAllPreviews();
+        });
+
+        const reprocessAutoTargets = () => {
+            if (!autoTargetToggle.checked) return;
+            queueAllPreviews();
+        };
+
+        minKbInput.addEventListener('change', reprocessAutoTargets);
+        maxKbInput.addEventListener('change', reprocessAutoTargets);
+        engineSelect.addEventListener('change', () => queueAllPreviews());
+
+        function updateQuality(id, value) {
+            const img = imageFiles.find(i => i.id === id);
+            if (!img) return;
+            img.quality = parseInt(value, 10);
+            img.isManual = true;
+
+            const valBadge = document.getElementById(`qualityVal-${id}`);
+            const autoBadge = document.getElementById(`auto-badge-${id}`);
+            if (valBadge) valBadge.textContent = value + '%';
+            if (autoBadge) autoBadge.style.display = 'none';
+
+            clearTimeout(img.debounceTimer);
+            img.debounceTimer = setTimeout(() => {
+                fetchPreview(id);
+            }, 300);
+        }
+
+        // ----------------------------------------------------
+        // UI Render & Pan/Zoom
+        // ----------------------------------------------------
+        function renderCards() {
+            const isAuto = autoTargetToggle.checked;
+            previewList.innerHTML = imageFiles.map((img) => {
+                const id = img.id;
+                const convertedSize = img.webpBlob ? formatBytes(img.webpBlob.size) : '...';
+                let savingsText = '...';
+                if (img.webpBlob) {
+                    const savingsPercent = Math.round((1 - (img.webpBlob.size / img.file.size)) * 100);
+                    savingsText = savingsPercent > 0 ? `Saved ${savingsPercent}% space!` : 'No space saved';
+                }
+
+                return `
+                    <div class="preview-card" id="card-${id}">
+                        <div class="card-header">
+                            <div class="file-info">
+                                <span class="file-name" title="${img.file.name}">${img.file.name}</span>
+                                <span class="savings" id="savings-${id}">${savingsText}</span>
+                            </div>
+                            <div class="card-header-actions">
+                                <button type="button" class="btn-download-single" id="download-btn-${id}" onclick="downloadSingleWebP(${id})">
+                                    ⬇ Download WebP
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="compare-viewer" id="viewer-${id}">
+                            <div class="badge badge-left">Original</div>
+                            <div class="badge badge-right">WebP</div>
+                            <button type="button" class="btn-expand" onclick="toggleExpand(${id})">⛶ Expand</button>
+                            <div class="help-text">Scroll/Pinch to Zoom | Drag to Pan</div>
+                            
+                            <div class="layer">
+                                <div class="pan-zoom-content" id="pz-webp-${id}">
+                                    <img src="${img.webpUrl || ''}" id="preview-img-${id}" alt="WebP Preview">
+                                </div>
+                            </div>
+                            
+                            <div class="layer layer-orig" id="compare-wrapper-${id}">
+                                <div class="pan-zoom-content orig-pan-zoom" id="pz-orig-${id}">
+                                    <img src="${img.origUrl}" alt="Original Image">
+                                </div>
+                            </div>
+                            
+                            <input type="range" class="compare-slider" id="compare-slider-${id}" min="0" max="100" value="50" aria-label="Compare Slider">
+                        </div>
+
+                        <div class="card-controls">
+                            <div class="stats-grid">
+                                <div class="stat-box">
+                                    <span class="stat-label">Original</span>
+                                    <span class="stat-value original">${formatBytes(img.file.size)}</span>
+                                </div>
+                                <div class="stat-box">
+                                    <span class="stat-label">WebP</span>
+                                    <span class="stat-value converted" id="converted-size-${id}">${convertedSize}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="quality-control">
+                                <label style="font-size:0.85rem">Adjust Quality <span id="auto-badge-${id}" style="display:${(isAuto && !img.isManual && img.webpBlob)?'inline':'none'}; color:#00f2fe; font-size:0.75rem; margin-left:5px;">(Auto)</span></label>
+                                <div class="slider-container">
+                                    <input type="range" class="quality-slider" id="quality-${id}" min="1" max="100" value="${img.quality}" oninput="updateQuality(${id}, this.value)">
+                                    <div class="quality-val" id="qualityVal-${id}">${img.quality}%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            imageFiles.forEach((img) => {
+                const id = img.id;
+                const compareSlider = document.getElementById(`compare-slider-${id}`);
+                const wrapper = document.getElementById(`compare-wrapper-${id}`);
+                
+                if (compareSlider && wrapper) {
+                    compareSlider.addEventListener('input', (e) => {
+                        wrapper.style.width = e.target.value + '%';
+                    });
+                }
+
+                const origPz = document.getElementById(`pz-orig-${id}`);
+                const viewer = document.getElementById(`viewer-${id}`);
+                
+                if (origPz && viewer && window.ResizeObserver) {
+                    const resizeObserver = new ResizeObserver(entries => {
+                        origPz.style.width = entries[0].contentRect.width + 'px';
+                    });
+                    resizeObserver.observe(viewer);
+                }
+                
+                initPanZoom(id);
+            });
+        }
+
+        function toggleExpand(id) {
+            const viewer = document.getElementById(`viewer-${id}`);
+            if (!viewer) return;
+            viewer.classList.toggle('expanded');
+            const btn = viewer.querySelector('.btn-expand');
+            if (viewer.classList.contains('expanded')) {
+                btn.textContent = '⛶ Collapse';
+            } else {
+                btn.textContent = '⛶ Expand';
+            }
+        }
+
+        function initPanZoom(id) {
+            const viewer = document.getElementById(`viewer-${id}`);
+            const slider = document.getElementById(`compare-slider-${id}`);
+            const pzWebp = document.getElementById(`pz-webp-${id}`);
+            const pzOrig = document.getElementById(`pz-orig-${id}`);
+            if (!viewer || !pzWebp || !pzOrig) return;
+            
+            let scale = 1;
+            let panX = 0;
+            let panY = 0;
+            let isPanning = false;
+            let startX, startY;
+
+            function updateTransform() {
+                pzWebp.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+                pzOrig.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+            }
+
+            viewer.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const zoomFactor = 0.1;
+                const delta = e.deltaY > 0 ? -1 : 1;
+                const newScale = scale * (1 + delta * zoomFactor);
+                
+                if (newScale >= 1 && newScale <= 10) {
+                    scale = newScale;
+                    if (scale === 1) {
+                        panX = 0;
+                        panY = 0;
+                    }
+                    updateTransform();
+                }
+            }, { passive: false });
+
+            viewer.addEventListener('mousedown', (e) => {
+                if (e.target === slider) return;
+                isPanning = true;
+                startX = e.clientX - panX;
+                startY = e.clientY - panY;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isPanning || scale === 1) return;
+                if (e.buttons !== 1) {
+                    isPanning = false;
+                    return;
+                }
+                panX = e.clientX - startX;
+                panY = e.clientY - startY;
+                updateTransform();
+            });
+
+            window.addEventListener('mouseup', () => {
+                isPanning = false;
+            });
+        }
+
+        // ----------------------------------------------------
+        // Download Single WebP Image
+        // ----------------------------------------------------
+        function downloadSingleWebP(id) {
+            const img = imageFiles.find(i => i.id === id);
+            if (!img || !img.webpBlob) return;
+
+            const renameStrategy = renameStrategySelect.value;
+            let fileName;
+            if (renameStrategy === 'sequential') {
+                const index = imageFiles.findIndex(i => i.id === id) + 1;
+                fileName = `${index}.webp`;
+            } else {
+                fileName = img.file.name.replace(/\.(png|jpe?g|webp)$/i, '.webp');
+            }
+
+            const a = document.createElement('a');
+            a.href = img.webpUrl;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        // ----------------------------------------------------
+        // Download All as ZIP (Works in 100% of Browsers)
+        // ----------------------------------------------------
+        downloadZipBtn.addEventListener('click', async () => {
+            if (imageFiles.length === 0) return;
+
+            try {
+                downloadZipBtn.disabled = true;
+                statusDiv.innerHTML = '<span class="loading-spin">🌀</span> Creating ZIP archive with compressed images...';
+
+                if (typeof JSZip === 'undefined') {
+                    throw new Error('ZIP library not loaded. Please refresh the page.');
+                }
+
+                const zip = new JSZip();
+                const renameStrategy = renameStrategySelect.value;
+                const usedNames = new Set();
+                let count = 0;
+                let fileNumber = 1;
+
+                for (const img of imageFiles) {
+                    if (img.webpBlob) {
+                        let baseName;
+                        if (renameStrategy === 'sequential') {
+                            baseName = `${fileNumber}`;
+                        } else {
+                            baseName = img.file.name.replace(/\.(png|jpe?g|webp)$/i, '');
+                        }
+
+                        let finalName = `${baseName}.webp`;
+                        let dupCounter = 1;
+                        while (usedNames.has(finalName.toLowerCase())) {
+                            finalName = `${baseName}_${dupCounter}.webp`;
+                            dupCounter++;
+                        }
+                        usedNames.add(finalName.toLowerCase());
+
+                        zip.file(finalName, img.webpBlob);
+                        count++;
+                        fileNumber++;
+                    }
+                }
+
+                if (count === 0) {
+                    throw new Error('No images ready to zip. Please wait for previews to complete.');
+                }
+
+                const zipBlob = await zip.generateAsync({
+                    type: 'blob',
+                    compression: 'DEFLATE',
+                    compressionOptions: { level: 6 }
+                });
+
+                const zipUrl = URL.createObjectURL(zipBlob);
+                const a = document.createElement('a');
+                a.href = zipUrl;
+                a.download = 'compressed_webp_images.zip';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(zipUrl);
+
+                statusDiv.innerHTML = `<span class="success-text">🎉 ZIP downloaded successfully! (${count} WebP images)</span>`;
+            } catch (err) {
+                console.error('ZIP download error:', err);
+                statusDiv.innerHTML = `<span class="error-text">❌ ZIP failed: ${err.message}</span>`;
+            } finally {
+                downloadZipBtn.disabled = false;
+            }
+        });
+
+        // ----------------------------------------------------
+        // Save Directly to Folder (Chrome/Edge with File System Access)
+        // ----------------------------------------------------
+        saveFolderBtn.addEventListener('click', async () => {
+            if (imageFiles.length === 0) return;
+
+            try {
+                if (!supportsFileSystemAccess) {
+                    throw new Error('Direct folder saving is only supported on Chromium browsers (Chrome/Edge). Please use "Download All as ZIP".');
+                }
+
+                if (!dirHandle) {
+                    dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                } else {
+                    const permission = await dirHandle.requestPermission({ mode: 'readwrite' });
+                    if (permission !== 'granted') {
+                        statusDiv.innerHTML = '<span class="error-text">❌ Write permission denied. Cannot save images to folder.</span>';
+                        return;
+                    }
+                }
+
+                statusDiv.innerHTML = '<span class="loading-spin">🌀</span> Saving compressed images to folder...';
+                saveFolderBtn.disabled = true;
+
+                const renameStrategy = renameStrategySelect.value;
+                const deleteOriginal = deleteOriginalToggle.checked;
+                const usedNames = new Set();
+                let saved = 0;
+                let deletedCount = 0;
+                let fileNumber = 1;
+
+                for (const img of imageFiles) {
+                    if (img.webpBlob) {
+                        let baseName;
+                        if (renameStrategy === 'sequential') {
+                            baseName = `${fileNumber}`;
+                        } else {
+                            baseName = img.file.name.replace(/\.(png|jpe?g|webp)$/i, '');
+                        }
+
+                        let finalName = `${baseName}.webp`;
+                        let dupCounter = 1;
+                        while (usedNames.has(finalName.toLowerCase())) {
+                            finalName = `${baseName}_${dupCounter}.webp`;
+                            dupCounter++;
+                        }
+                        usedNames.add(finalName.toLowerCase());
+
+                        const fileHandle = await dirHandle.getFileHandle(finalName, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(img.webpBlob);
+                        await writable.close();
+
+                        if (deleteOriginal && img.handle) {
+                            try {
+                                await img.handle.remove();
+                                deletedCount++;
+                            } catch (e) {
+                                console.warn('Could not delete original file:', e);
+                            }
+                        }
+
+                        saved++;
+                        fileNumber++;
+                    }
+                }
+
+                let successMsg = `🎉 Success! ${saved} WebP images saved to folder.`;
+                if (deleteOriginal) {
+                    successMsg += ` (Deleted ${deletedCount} original images)`;
+                }
+                statusDiv.innerHTML = `<span class="success-text">${successMsg}</span>`;
+            } catch (err) {
+                console.error(err);
+                statusDiv.innerHTML = `<span class="error-text">❌ Failed to save: ${err.message}</span>`;
+            } finally {
+                saveFolderBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
