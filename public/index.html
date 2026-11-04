@@ -601,6 +601,11 @@
                         <option value="server">🖥️ Server (Sharp)</option>
                     </select>
                 </div>
+
+                <label class="setting-item" style="cursor: pointer; color: #38ef7d;" id="preserveFoldersLabel" title="Preserve nested subfolders when saving as ZIP or to folder">
+                    <input type="checkbox" id="preserveFoldersToggle" checked style="width: 18px; height: 18px; cursor: pointer;">
+                    Keep Subfolders
+                </label>
                 
                 <label class="setting-item" style="cursor: pointer; color: #ff9a9e;" id="deleteOriginalLabel" title="Direct file deletion requires Chrome/Edge with Folder write permission">
                     <input type="checkbox" id="deleteOriginalToggle" style="width: 18px; height: 18px; cursor: pointer;">
@@ -649,6 +654,7 @@
         const engineSelect = document.getElementById('engineSelect');
         const deleteOriginalToggle = document.getElementById('deleteOriginalToggle');
         const deleteOriginalLabel = document.getElementById('deleteOriginalLabel');
+        const preserveFoldersToggle = document.getElementById('preserveFoldersToggle');
 
         // State
         let dirHandle = null;
@@ -773,8 +779,18 @@
                 const files = Array.from(e.target.files).filter(isImageFile);
                 if (files.length > 0) {
                     dirHandle = null;
-                    const dropped = files.map(file => ({ handle: null, file }));
-                    processFiles(dropped);
+                    const items = files.map(file => {
+                        let relativePath = file.name;
+                        let folderPath = "";
+                        if (file.webkitRelativePath) {
+                            const parts = file.webkitRelativePath.split('/');
+                            parts.shift(); // remove top-level folder name
+                            relativePath = parts.join('/');
+                            folderPath = parts.slice(0, -1).join('/');
+                        }
+                        return { handle: null, file, relativePath, folderPath };
+                    });
+                    processFiles(items);
                 } else {
                     statusDiv.innerHTML = '<span class="error-text">No valid JPG, PNG, or WebP images in selected folder.</span>';
                 }
@@ -805,13 +821,19 @@
         window.addEventListener('drop', (e) => e.preventDefault());
 
         // Recursive directory traversal for webkitGetAsEntry (Safari, Firefox, Chrome)
-        async function traverseFileSystemEntry(entry) {
+        async function traverseFileSystemEntry(entry, currentPath = "") {
             return new Promise((resolve) => {
                 if (!entry) return resolve([]);
                 if (entry.isFile) {
                     entry.file((file) => {
                         if (isImageFile(file)) {
-                            resolve([{ handle: null, file }]);
+                            const relPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+                            resolve([{
+                                handle: null,
+                                file,
+                                relativePath: relPath,
+                                folderPath: currentPath
+                            }]);
                         } else {
                             resolve([]);
                         }
@@ -822,7 +844,29 @@
                     const readBatch = () => {
                         reader.readEntries(async (entries) => {
                             if (entries.length === 0) {
-                                const nested = (await Promise.all(allEntries.map(traverseFileSystemEntry))).flat();
+                                const nextPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+                                const nested = (await Promise.all(allEntries.map(child => {
+                                    if (child.isFile) {
+                                        return new Promise(res => {
+                                            child.file(file => {
+                                                if (isImageFile(file)) {
+                                                    const relPath = nextPath ? `${nextPath}/${child.name}` : child.name;
+                                                    res([{
+                                                        handle: null,
+                                                        file,
+                                                        relativePath: relPath,
+                                                        folderPath: nextPath
+                                                    }]);
+                                                } else {
+                                                    res([]);
+                                                }
+                                            }, () => res([]));
+                                        });
+                                    } else if (child.isDirectory) {
+                                        return traverseFileSystemEntry(child, nextPath);
+                                    }
+                                    return Promise.resolve([]);
+                                }))).flat();
                                 resolve(nested);
                             } else {
                                 allEntries.push(...entries);
@@ -863,12 +907,13 @@
                 }
 
                 // Check if any dropped item is a directory
-                const hasDirectory = entries.some(entry => entry.isDirectory);
+                const dirEntries = entries.filter(entry => entry.isDirectory);
+                const hasDirectory = dirEntries.length > 0;
 
-                // Case A: User dropped a folder
+                // Case A: User dropped one or more folders
                 if (hasDirectory) {
-                    // Try Chromium showDirectoryPicker / getAsFileSystemHandle if available
-                    if (rawItems.length > 0 && typeof rawItems[0].getAsFileSystemHandle === 'function') {
+                    // Try Chromium showDirectoryPicker / getAsFileSystemHandle if single folder dropped
+                    if (dirEntries.length === 1 && rawItems.length === 1 && typeof rawItems[0].getAsFileSystemHandle === 'function') {
                         try {
                             const handle = await rawItems[0].getAsFileSystemHandle();
                             if (handle && handle.kind === 'directory') {
@@ -881,10 +926,26 @@
                     }
 
                     // Universal directory traversal for Safari, Firefox, Chrome
-                    const nested = (await Promise.all(entries.map(traverseFileSystemEntry))).flat();
-                    if (nested.length > 0) {
+                    // If exactly 1 folder dropped, start subfolder path at root ""
+                    // If multiple folders dropped, start path with folder name
+                    const nested = (await Promise.all(dirEntries.map(dir => {
+                        const startPath = dirEntries.length === 1 ? "" : dir.name;
+                        return traverseFileSystemEntry(dir, startPath);
+                    }))).flat();
+
+                    // Also collect any loose files dropped alongside folders
+                    const looseFiles = [];
+                    for (const entry of entries) {
+                        if (entry.isFile) {
+                            const files = await traverseFileSystemEntry(entry, "");
+                            looseFiles.push(...files);
+                        }
+                    }
+
+                    const allDropped = [...looseFiles, ...nested];
+                    if (allDropped.length > 0) {
                         dirHandle = null;
-                        await processFiles(nested);
+                        await processFiles(allDropped);
                         return;
                     }
                 }
@@ -895,14 +956,14 @@
                 if (rawFiles.length > 0) {
                     for (const file of rawFiles) {
                         if (isImageFile(file)) {
-                            droppedFiles.push({ handle: null, file });
+                            droppedFiles.push({ handle: null, file, relativePath: file.name, folderPath: "" });
                         }
                     }
                 }
 
                 // Fallback: If rawFiles was somehow empty, read from entries
                 if (droppedFiles.length === 0 && entries.length > 0) {
-                    const resolved = (await Promise.all(entries.map(traverseFileSystemEntry))).flat();
+                    const resolved = (await Promise.all(entries.map(e => traverseFileSystemEntry(e, "")))).flat();
                     droppedFiles.push(...resolved);
                 }
 
@@ -919,6 +980,32 @@
         });
 
         // ----------------------------------------------------
+        // Recursive Scanner for FileSystemDirectoryHandle (Chrome/Edge)
+        // ----------------------------------------------------
+        async function scanDirectoryHandle(dirHandle, currentPath = "") {
+            const results = [];
+            for await (const entry of dirHandle.values()) {
+                if (entry.kind === 'file') {
+                    const file = await entry.getFile();
+                    if (isImageFile(file)) {
+                        const relPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+                        results.push({
+                            handle: entry,
+                            file,
+                            relativePath: relPath,
+                            folderPath: currentPath
+                        });
+                    }
+                } else if (entry.kind === 'directory') {
+                    const subPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+                    const subResults = await scanDirectoryHandle(entry, subPath);
+                    results.push(...subResults);
+                }
+            }
+            return results;
+        }
+
+        // ----------------------------------------------------
         // Processing Input Files & Folders
         // ----------------------------------------------------
         async function processFolderHandle(handle) {
@@ -926,34 +1013,33 @@
             cleanupBlobs();
             imageFiles = [];
             dropZoneText.innerHTML = `✅ Selected Folder: <b>${handle.name}</b>`;
-            statusDiv.innerHTML = '<span class="loading-spin">🌀</span> Scanning folder: ' + handle.name + '...';
+            statusDiv.innerHTML = '<span class="loading-spin">🌀</span> Scanning folder & subfolders: ' + handle.name + '...';
 
-            for await (const entry of dirHandle.values()) {
-                if (entry.kind === 'file') {
-                    const file = await entry.getFile();
-                    if (isImageFile(file)) {
-                        imageFiles.push({
-                            id: imageIdCounter++,
-                            handle: entry,
-                            file,
-                            quality: 85,
-                            isManual: false,
-                            debounceTimer: null,
-                            webpBlob: null,
-                            origUrl: URL.createObjectURL(file),
-                            webpUrl: null
-                        });
-                    }
-                }
-            }
+            const scanned = await scanDirectoryHandle(handle, "");
 
-            if (imageFiles.length === 0) {
+            if (scanned.length === 0) {
                 statusDiv.innerHTML = '<span class="error-text">No JPG/PNG/WebP images found in folder: ' + handle.name + '</span>';
                 actionButtonGroup.style.display = 'none';
                 return;
             }
 
-            statusDiv.innerHTML = `<span class="success-text">Found ${imageFiles.length} images. Processing previews...</span>`;
+            for (const item of scanned) {
+                imageFiles.push({
+                    id: imageIdCounter++,
+                    handle: item.handle,
+                    file: item.file,
+                    relativePath: item.relativePath,
+                    folderPath: item.folderPath,
+                    quality: 85,
+                    isManual: false,
+                    debounceTimer: null,
+                    webpBlob: null,
+                    origUrl: URL.createObjectURL(item.file),
+                    webpUrl: null
+                });
+            }
+
+            statusDiv.innerHTML = `<span class="success-text">Found ${imageFiles.length} images across folder & subfolders. Processing previews...</span>`;
             actionButtonGroup.style.display = 'flex';
             if (supportsFileSystemAccess) {
                 saveFolderBtn.style.display = 'inline-flex';
@@ -975,6 +1061,8 @@
                     id: imageIdCounter++,
                     handle: data.handle,
                     file: data.file,
+                    relativePath: data.relativePath || data.file.name,
+                    folderPath: data.folderPath || "",
                     quality: 85,
                     isManual: false,
                     debounceTimer: null,
@@ -1268,11 +1356,16 @@
                     savingsText = savingsPercent > 0 ? `Saved ${savingsPercent}% space!` : 'No space saved';
                 }
 
+                const folderBadge = (img.folderPath)
+                    ? `<span style="background: rgba(0, 242, 254, 0.15); border: 1px solid rgba(0, 242, 254, 0.3); color: #00f2fe; padding: 2px 7px; border-radius: 5px; font-size: 0.75rem; font-weight: 600; margin-right: 6px; display: inline-flex; align-items: center; gap: 4px;">📁 ${img.folderPath}/</span>`
+                    : '';
+
                 return `
                     <div class="preview-card" id="card-${id}">
                         <div class="card-header">
-                            <div class="file-info">
-                                <span class="file-name" title="${img.file.name}">${img.file.name}</span>
+                            <div class="file-info" style="display:flex; align-items:center; flex-wrap:wrap; gap:8px;">
+                                ${folderBadge}
+                                <span class="file-name" title="${img.relativePath || img.file.name}">${img.file.name}</span>
                                 <span class="savings" id="savings-${id}">${savingsText}</span>
                             </div>
                             <div class="card-header-actions">
@@ -1578,31 +1671,43 @@
                 }
 
                 const zip = new JSZip();
+                const preserveFolders = preserveFoldersToggle ? preserveFoldersToggle.checked : true;
                 const renameStrategy = renameStrategySelect.value;
-                const usedNames = new Set();
+                const usedPaths = new Set();
+                const folderCounters = {};
                 let count = 0;
-                let fileNumber = 1;
+                let globalFileNumber = 1;
 
                 for (const img of imageFiles) {
                     if (img.webpBlob) {
+                        const folder = (preserveFolders && img.folderPath) ? img.folderPath : "";
                         let baseName;
+
                         if (renameStrategy === 'sequential') {
-                            baseName = `${fileNumber}`;
+                            if (preserveFolders && folder) {
+                                folderCounters[folder] = (folderCounters[folder] || 0) + 1;
+                                baseName = `${folderCounters[folder]}`;
+                            } else {
+                                baseName = `${globalFileNumber}`;
+                            }
                         } else {
-                            baseName = img.file.name.replace(/\.(png|jpe?g|webp)$/i, '');
+                            baseName = img.file.name.replace(/\.(png|jpe?g|webp|jfif|avif|bmp|svg)$/i, '');
                         }
 
-                        let finalName = `${baseName}.webp`;
+                        let fileName = `${baseName}.webp`;
+                        let fullPath = folder ? `${folder}/${fileName}` : fileName;
+
                         let dupCounter = 1;
-                        while (usedNames.has(finalName.toLowerCase())) {
-                            finalName = `${baseName}_${dupCounter}.webp`;
+                        while (usedPaths.has(fullPath.toLowerCase())) {
+                            fileName = `${baseName}_${dupCounter}.webp`;
+                            fullPath = folder ? `${folder}/${fileName}` : fileName;
                             dupCounter++;
                         }
-                        usedNames.add(finalName.toLowerCase());
+                        usedPaths.add(fullPath.toLowerCase());
 
-                        zip.file(finalName, img.webpBlob);
+                        zip.file(fullPath, img.webpBlob);
                         count++;
-                        fileNumber++;
+                        globalFileNumber++;
                     }
                 }
 
@@ -1625,7 +1730,7 @@
                 document.body.removeChild(a);
                 URL.revokeObjectURL(zipUrl);
 
-                statusDiv.innerHTML = `<span class="success-text">🎉 ZIP downloaded successfully! (${count} WebP images)</span>`;
+                statusDiv.innerHTML = `<span class="success-text">🎉 ZIP downloaded successfully! (${count} WebP images${preserveFolders ? ' with subfolders' : ''})</span>`;
             } catch (err) {
                 console.error('ZIP download error:', err);
                 statusDiv.innerHTML = `<span class="error-text">❌ ZIP failed: ${err.message}</span>`;
@@ -1633,6 +1738,17 @@
                 downloadZipBtn.disabled = false;
             }
         });
+
+        // Helper to navigate or create nested subdirectories
+        async function getOrCreateSubDirHandle(rootDirHandle, folderPath) {
+            if (!folderPath) return rootDirHandle;
+            const segments = folderPath.split('/').filter(Boolean);
+            let current = rootDirHandle;
+            for (const seg of segments) {
+                current = await current.getDirectoryHandle(seg, { create: true });
+            }
+            return current;
+        }
 
         // ----------------------------------------------------
         // Save Directly to Folder (Chrome/Edge with File System Access)
@@ -1658,31 +1774,45 @@
                 statusDiv.innerHTML = '<span class="loading-spin">🌀</span> Saving compressed images to folder...';
                 saveFolderBtn.disabled = true;
 
+                const preserveFolders = preserveFoldersToggle ? preserveFoldersToggle.checked : true;
                 const renameStrategy = renameStrategySelect.value;
                 const deleteOriginal = deleteOriginalToggle.checked;
-                const usedNames = new Set();
+                const usedPaths = new Set();
+                const folderCounters = {};
                 let saved = 0;
                 let deletedCount = 0;
-                let fileNumber = 1;
+                let globalFileNumber = 1;
 
                 for (const img of imageFiles) {
                     if (img.webpBlob) {
+                        const folder = (preserveFolders && img.folderPath) ? img.folderPath : "";
                         let baseName;
+
                         if (renameStrategy === 'sequential') {
-                            baseName = `${fileNumber}`;
+                            if (preserveFolders && folder) {
+                                folderCounters[folder] = (folderCounters[folder] || 0) + 1;
+                                baseName = `${folderCounters[folder]}`;
+                            } else {
+                                baseName = `${globalFileNumber}`;
+                            }
                         } else {
-                            baseName = img.file.name.replace(/\.(png|jpe?g|webp)$/i, '');
+                            baseName = img.file.name.replace(/\.(png|jpe?g|webp|jfif|avif|bmp|svg)$/i, '');
                         }
 
-                        let finalName = `${baseName}.webp`;
+                        let fileName = `${baseName}.webp`;
+                        let fullPath = folder ? `${folder}/${fileName}` : fileName;
+
                         let dupCounter = 1;
-                        while (usedNames.has(finalName.toLowerCase())) {
-                            finalName = `${baseName}_${dupCounter}.webp`;
+                        while (usedPaths.has(fullPath.toLowerCase())) {
+                            fileName = `${baseName}_${dupCounter}.webp`;
+                            fullPath = folder ? `${folder}/${fileName}` : fileName;
                             dupCounter++;
                         }
-                        usedNames.add(finalName.toLowerCase());
+                        usedPaths.add(fullPath.toLowerCase());
 
-                        const fileHandle = await dirHandle.getFileHandle(finalName, { create: true });
+                        // Navigate into or create the nested subdirectory
+                        const targetDirHandle = await getOrCreateSubDirHandle(dirHandle, folder);
+                        const fileHandle = await targetDirHandle.getFileHandle(fileName, { create: true });
                         const writable = await fileHandle.createWritable();
                         await writable.write(img.webpBlob);
                         await writable.close();
@@ -1697,11 +1827,11 @@
                         }
 
                         saved++;
-                        fileNumber++;
+                        globalFileNumber++;
                     }
                 }
 
-                let successMsg = `🎉 Success! ${saved} WebP images saved to folder.`;
+                let successMsg = `🎉 Success! ${saved} WebP images saved to folder${preserveFolders ? ' with subfolders' : ''}.`;
                 if (deleteOriginal) {
                     successMsg += ` (Deleted ${deletedCount} original images)`;
                 }
